@@ -1,17 +1,13 @@
-# pzaudit v0.3.4
+# pzaudit v0.4.0
 
-Project Zomboid Steam Workshop census and human-reviewed AI provenance tooling.
-The census schema and collected Workshop records remain unchanged.
+Project Zomboid Steam Workshop census, human-reviewed AI provenance, and local
+static-analysis tooling.
 
-Version 0.3.4 corrects false code candidates caused by AI-artwork disclosures,
-explicit AI-use denials, Claude Code integrations, and references to other
-vibecoded mods. A pending refresh can now place AI-assisted artwork in the
-assets queue. Reviewed decisions remain unchanged.
+Version 0.4.0 adds a privacy-preserving local project analyzer for Phase 2
+validation work. The census schema and collected Workshop records remain
+unchanged.
 
 ## Install / upgrade
-
-After merging the cleanup PR, update your checkout and reinstall in your existing
-virtual environment:
 
 ```bash
 git pull --ff-only
@@ -19,7 +15,50 @@ pip install -e ".[dev]"
 python -m pytest
 ```
 
-No census migration or recollection is needed. Do not run `pzaudit reset` to upgrade.
+No census migration or recollection is needed. Do not run `pzaudit reset` to
+upgrade.
+
+## Analyze a local project
+
+The static-analysis runner does **not** upload source code and does not require a
+Steam API key or census database.
+
+```bash
+pzaudit analyze /path/to/project --output pzaudit-report.json
+```
+
+By default, the JSON report is aggregate-only: it contains counts and metrics,
+not source text or source-file paths.
+
+To include relative source paths and per-file metrics for a trusted
+collaboration:
+
+```bash
+pzaudit analyze /path/to/project \
+  --output pzaudit-report.json \
+  --include-file-metrics
+```
+
+The report currently includes:
+
+- source-file inventory by language and extension
+- total/code/blank/comment line counts
+- function/class counts and heuristic branch-point counts
+- test, CI, lint, type-check, README, and docs signals
+- counts of process execution, dynamic code loading, filesystem I/O, and network
+  I/O API usage
+- a deterministic source fingerprint for comparing analyzed snapshots
+
+Capability signals are review prompts, not vulnerability findings. No metric is
+treated as evidence of AI authorship. Non-Python structure metrics are heuristic.
+
+The analyzer skips common dependency/build/cache directories, does not follow
+symlinks, and skips individual source files larger than 2 MB by default. Override
+the size threshold with `--max-file-bytes` if needed.
+
+See
+[`docs/static-analysis-validation-guide.md`](docs/static-analysis-validation-guide.md)
+for the collaborator workflow and interpretation rules.
 
 ## Rebuild the pending review queue
 
@@ -37,14 +76,15 @@ rolls back the refresh. It never updates the `mods` or `crawl_state` tables.
 
 All confirmed, rejected, and unclear candidate rows remain unchanged, including
 IDs, evidence, notes, and timestamps. Identical reviewed evidence is not reopened.
-Changed evidence or classifier-generated snippets may produce a new pending candidate alongside the historical
-reviewed row; reviews are evidence-specific, not blanket decisions about a mod.
-Pending candidate IDs are replaced, so old pending IDs should not be reused.
+Changed evidence or classifier-generated snippets may produce a new pending
+candidate alongside the historical reviewed row; reviews are evidence-specific,
+not blanket decisions about a mod. Pending candidate IDs are replaced, so old
+pending IDs should not be reused.
 
 Refresh invalidates cached review groups to prevent stale membership and counts.
 Rebuild groups for each evidence type you want to review (`code`,
-`development_general`, `translation`, `assets`, or `audio`). This does not undo
-previous group decisions, which are stored on the reviewed candidates.
+`development_general`, `translation`, `assets`, or `audio`). This does not
+undo previous group decisions, which are stored on the reviewed candidates.
 
 The older `refresh-candidates` command remains available for replacing only
 pending code/general-development rows; it also invalidates group caches.

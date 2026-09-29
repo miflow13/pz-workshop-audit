@@ -265,20 +265,44 @@ You do not need to disclose prompts, private conversations, API keys, secrets, o
 
 ## Current tooling status
 
-The repository currently contains the Workshop census, metadata classifier, provenance extraction, grouping, and human-review tooling.
+The repository now includes a local static-analysis runner for arbitrary source trees.
 
-**There is not yet a finished general-purpose static-analysis command for arbitrary external repositories.**
+Install or upgrade the project:
 
-Please do not infer or invent a command such as `pzaudit analyze-repo` yet; it does not exist in the current codebase.
+```bash
+git pull --ff-only
+pip install -e ".[dev]"
+python -m pytest
+```
 
-The validation target you provide will help shape that interface. Once the source-analysis runner lands, this document should be updated with exact reproducible commands.
+Run an aggregate-only analysis locally:
 
-For now, the most useful things to provide are:
+```bash
+pzaudit analyze /path/to/project --output pzaudit-report.json
+```
 
-- the exact repository/commit or source snapshot to analyze
-- the ground-truth notes above
-- any constraints on what may be stored or published
-- whether results may be quoted publicly, anonymized only, or kept private
+That is the recommended collaborator workflow. The source tree stays on your machine. By default the report contains aggregate metrics only and does **not** include source text or source-file paths.
+
+If you are comfortable sharing relative file paths and per-file metrics, opt in explicitly:
+
+```bash
+pzaudit analyze /path/to/project \
+  --output pzaudit-report.json \
+  --include-file-metrics
+```
+
+The current report includes source inventory, line counts, function/class counts, heuristic branch-point counts, testing/CI/configuration signals, and counts of selected process-execution, dynamic-loading, filesystem, and network API usage.
+
+The analyzer also writes a deterministic source fingerprint for the analyzed source snapshot. This helps us verify that two reports refer to the same source without uploading the source itself.
+
+Please send back:
+
+- `pzaudit-report.json`
+- the exact repository commit/version that was analyzed
+- the ground-truth development notes described above
+- any constraints on publication or attribution
+
+If you prefer, you can keep the source completely private. We do not need a packaged mod or repository archive to compare the aggregate report against your known provenance.
 
 ---
 
