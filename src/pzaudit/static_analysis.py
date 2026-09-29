@@ -486,9 +486,14 @@ def analyze_project(
         raise ValueError("max_file_bytes must be greater than zero")
 
     all_files = list(_iter_project_files(root))
-    source_candidates = [
-        path for path in all_files if path.suffix.lower() in SOURCE_LANGUAGES
-    ]
+    source_candidates = sorted(
+        (
+            path
+            for path in all_files
+            if path.suffix.lower() in SOURCE_LANGUAGES
+        ),
+        key=lambda path: path.relative_to(root).as_posix(),
+    )
 
     language_counts: Counter[str] = Counter()
     extension_counts: Counter[str] = Counter()
