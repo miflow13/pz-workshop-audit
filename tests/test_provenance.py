@@ -24,64 +24,44 @@ def insert(conn, wid, title, description, created=1, updated=2):
     )
     conn.commit()
 
-def test_extract_separates_assets_from_code(monkeypatch):
+def test_extract_separates_assets_from_code():
     conn = make_conn()
     insert(conn, "1", "Cover Image Example",
            "This mod uses an AI generated cover image. The Lua code is mine.")
-    monkeypatch.setattr(
-        "pzaudit.provenance.classify_ai_mention",
-        lambda title, desc: {"tools": []},
-    )
     inserted, refreshed = extract_candidates(conn)
     assert (inserted, refreshed) == (1, 0)
     row = conn.execute("SELECT * FROM provenance_candidates").fetchone()
     assert row["evidence_type"] == "assets"
 
-def test_translation_candidate(monkeypatch):
+def test_translation_candidate():
     conn = make_conn()
     insert(conn, "2", "Translated Mod",
            "This mod is AI-translated to all available languages.")
-    monkeypatch.setattr(
-        "pzaudit.provenance.classify_ai_mention",
-        lambda title, desc: {"tools": []},
-    )
     extract_candidates(conn)
     row = conn.execute("SELECT * FROM provenance_candidates").fetchone()
     assert row["evidence_type"] == "translation"
 
-def test_audio_candidate(monkeypatch):
+def test_audio_candidate():
     conn = make_conn()
     insert(conn, "3", "Music Mod",
            "Includes AI generated music for the cassette collection.")
-    monkeypatch.setattr(
-        "pzaudit.provenance.classify_ai_mention",
-        lambda title, desc: {"tools": []},
-    )
     extract_candidates(conn)
     row = conn.execute("SELECT * FROM provenance_candidates").fetchone()
     assert row["evidence_type"] == "audio"
 
-def test_code_candidate_requires_context(monkeypatch):
+def test_code_candidate_requires_context():
     conn = make_conn()
     insert(conn, "4", "Code Mod",
            "I used Claude while developing and debugging the Lua code.")
-    monkeypatch.setattr(
-        "pzaudit.provenance.classify_ai_mention",
-        lambda title, desc: {"tools": ["Claude"]},
-    )
     extract_candidates(conn)
     row = conn.execute("SELECT * FROM provenance_candidates").fetchone()
     assert row["evidence_type"] == "code"
     assert row["tools"] == "Claude"
 
-def test_review_workflow(monkeypatch):
+def test_review_workflow():
     conn = make_conn()
     insert(conn, "5", "Code Mod",
            "I used ChatGPT while developing the Lua scripts.")
-    monkeypatch.setattr(
-        "pzaudit.provenance.classify_ai_mention",
-        lambda title, desc: {"tools": ["ChatGPT"]},
-    )
     extract_candidates(conn)
     row = next_pending(conn)
     assert row is not None

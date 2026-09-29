@@ -16,13 +16,13 @@ def make_conn():
     return conn
 
 
-def test_explicit_disclosure():
+def test_explicit_genai_dev():
     result = classify_ai_mention(
         "Example",
         "I made this mod using Claude to help write the Lua scripts.",
     )
     assert result is not None
-    assert result["classification"] == "explicit_disclosure"
+    assert result["classification"] == "explicit_genai_dev"
     assert "Claude" in result["tools"]
 
 
@@ -32,7 +32,7 @@ def test_game_ai_is_ambiguous():
         "Improves AI pathfinding and survivor behavior.",
     )
     assert result is not None
-    assert result["classification"] == "ambiguous_ai"
+    assert result["classification"] == "gameplay_ai"
 
 
 def test_prefilter_and_scan():
@@ -51,5 +51,37 @@ def test_prefilter_and_scan():
         progress=False,
     )
     assert candidates == 2
-    assert summary["explicit_disclosure"] == 1
-    assert summary["ambiguous_ai"] == 1
+    assert summary["explicit_genai_dev"] == 1
+    assert summary["gameplay_ai"] == 1
+
+
+def test_limit_does_not_limit_summary_or_write_database():
+    conn = make_conn()
+    conn.executemany('INSERT INTO mods VALUES (?, ?, ?, ?)', [
+        ('1', 'AI generated image', None, 1),
+        ('2', 'Example', 'I used Claude to write Lua code.', 2),
+        ('3', 'Cursor', 'Changes the mouse cursor.', 3),
+    ])
+    before = conn.total_changes
+    summary, matches, candidates = ai_mentions(conn, limit=0)
+    assert candidates == 2
+    assert sum(summary.values()) == 2
+    assert matches == []
+    assert conn.total_changes == before
+
+
+def test_policy_and_gameplay_are_not_provenance():
+    for text in ['Do not use AI artwork.', 'I coded improved zombie AI pathfinding.']:
+        result = classify_ai_mention('', text)
+        assert result['evidence_type'] is None
+
+
+def test_distinct_disclosure_survives_policy_sentence():
+    result = classify_ai_mention('', 'Do not use AI artwork. I used Claude to write Lua code.')
+    assert result['evidence_type'] == 'code'
+
+
+def test_general_development_has_unspecified_scope():
+    result = classify_ai_mention('', 'AI services used during development.')
+    assert result['evidence_type'] == 'development_general'
+    assert result['provenance_classification'] == 'ai_development_scope_unspecified'
