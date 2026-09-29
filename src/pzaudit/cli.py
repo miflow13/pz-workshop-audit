@@ -9,9 +9,18 @@ from .collector import collect
 from .db import connect, counts
 from .steam import SteamWorkshopClient
 from .inspectors import overview, timeline, top_authors, top_tags, ai_mentions
+from .static_analysis import (
+    DEFAULT_MAX_FILE_BYTES,
+    analyze_project,
+    write_report,
+)
 
 
 def _db_path(value: str) -> Path:
+    return Path(value).expanduser()
+
+
+def _path(value: str) -> Path:
     return Path(value).expanduser()
 
 
@@ -32,6 +41,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("status")
     sub.add_parser("reset")
+
+    analyze_cmd = sub.add_parser(
+        "analyze",
+        help="analyze a local source tree without uploading source code",
+    )
+    analyze_cmd.add_argument("path", type=_path)
+    analyze_cmd.add_argument(
+        "--output",
+        type=_path,
+        default=None,
+        help="write the JSON report to this path instead of stdout",
+    )
+    analyze_cmd.add_argument(
+        "--include-file-metrics",
+        action="store_true",
+        help="include relative source paths and per-file metrics in the report",
+    )
+    analyze_cmd.add_argument(
+        "--max-file-bytes",
+        type=int,
+        default=DEFAULT_MAX_FILE_BYTES,
+        help=(
+            "skip individual source files larger than this many bytes "
+            f"(default: {DEFAULT_MAX_FILE_BYTES})"
+        ),
+    )
 
     inspect_cmd = sub.add_parser("inspect")
     inspect_sub = inspect_cmd.add_subparsers(
@@ -104,6 +139,31 @@ def cmd_reset(db: Path) -> None:
         if sidecar.exists():
             sidecar.unlink()
     print(f"Reset {db}")
+
+
+def cmd_analyze(args: argparse.Namespace) -> None:
+    try:
+        report = analyze_project(
+            args.path,
+            include_file_metrics=args.include_file_metrics,
+            max_file_bytes=args.max_file_bytes,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    if args.output is None:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+
+    output = write_report(report, args.output)
+    inventory = report["inventory"]
+    metrics = report["metrics"]
+    print(f"Wrote static-analysis report: {output}")
+    print(
+        f"source files analyzed: {inventory['source_files_analyzed']} | "
+        f"code lines: {metrics['lines']['code']} | "
+        f"privacy: {report['project']['privacy']}"
+    )
 
 
 def cmd_inspect(db: Path, args: argparse.Namespace) -> None:
@@ -196,6 +256,8 @@ def main() -> None:
         cmd_status(args.db)
     elif args.command == "reset":
         cmd_reset(args.db)
+    elif args.command == "analyze":
+        cmd_analyze(args)
     elif args.command == "inspect":
         cmd_inspect(args.db, args)
 
