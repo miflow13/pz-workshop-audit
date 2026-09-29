@@ -1,7 +1,12 @@
-# pzaudit v0.3.3
+# pzaudit v0.3.4
 
 Project Zomboid Steam Workshop census and human-reviewed AI provenance tooling.
 The census schema and collected Workshop records remain unchanged.
+
+Version 0.3.4 corrects false code candidates caused by AI-artwork disclosures,
+explicit AI-use denials, Claude Code integrations, and references to other
+vibecoded mods. A pending refresh can now place AI-assisted artwork in the
+assets queue. Reviewed decisions remain unchanged.
 
 ## Install / upgrade
 
