@@ -20,7 +20,7 @@ AUDIO_RE = re.compile(
 )
 
 ASSET_RE = re.compile(
-    r"\bai[- ]?(?:generated[- ]?)?(?:art|artwork|image|images|texture|textures|icon|icons|"
+    r"\bai[- ]?(?:(?:generated|assisted)[- ]?)?(?:art|artwork|image|images|texture|textures|icon|icons|"
     r"thumbnail|thumbnails|illustration|illustrations|face|faces|cover image|cover art)\b"
     r"|\b(?:art|artwork|image|images|texture|textures|icon|icons|thumbnail|thumbnails|"
     r"illustration|illustrations|face|faces|cover image|cover art)\b.{0,35}"
@@ -29,7 +29,7 @@ ASSET_RE = re.compile(
 )
 
 NAMED_TOOL_RE = re.compile(
-    r"\b(chat\s*gpt|chatgpt|gpt(?:[-\s]?(?:3(?:\.5)?|4(?:o)?|5))?|claude|"
+    r"\b(chat\s*gpt|chatgpt|gpt(?:[-\s]?(?:3(?:\.5)?|4(?:o)?|5))?|claude(?:\s+code)?|"
     r"(?:github\s+)?copilot|gemini|llms?|large language models?|"
     r"cursor\s+(?:ai|ide|editor))\b",
     re.I,
@@ -42,7 +42,7 @@ GENERIC_AI_RE = re.compile(
 
 CODE_RE = re.compile(
     r"\b(code|coded|coding|script|scripts|lua|program|programming|implementation|"
-    r"implemented|function|functions|debug|debugging|refactor|refactoring|source code)\b",
+    r"implemented|conversion|function|functions|debug|debugging|refactor|refactoring|source code)\b",
     re.I,
 )
 
@@ -63,11 +63,13 @@ GENERAL_DEVELOPMENT_RE = re.compile(
 )
 
 VIBE_RE = re.compile(r"\bvibe[-\s]?cod(?:e|ed|ing)\b", re.I)
+OTHER_VERSION_RE = re.compile(r"\b(?:try finding|find|look for)\b.{0,70}\bvibe[-\s]?cod(?:e|ed|ing)\b", re.I)
 
 # We intentionally use a fairly tight local window. The previous extractor
 # matched "AI faction mod" near the top of a huge description with "code"
 # hundreds/thousands of characters later.
 LOCAL_RADIUS = 180
+MARKUP_RE = re.compile(r"https?://[^\s\]]+|\[[^\]]+\]", re.I)
 
 
 def _clean(value: str | None) -> str:
@@ -84,6 +86,12 @@ def _local_window(text: str, match: re.Match[str], radius: int = LOCAL_RADIUS) -
     left = max(0, match.start() - radius)
     right = min(len(text), match.end() + radius)
     return text[left:right], left, right
+
+
+def _code_context(window: str) -> str:
+    """Ignore product names, links, and Workshop markup as code evidence."""
+    masked = MARKUP_RE.sub(lambda match: " " * len(match.group()), window)
+    return NAMED_TOOL_RE.sub(lambda match: " " * len(match.group()), masked)
 
 
 def _find_code_claim(text: str) -> tuple[str, str, str] | None:
@@ -103,7 +111,9 @@ def _find_code_claim(text: str) -> tuple[str, str, str] | None:
     # within +/- LOCAL_RADIUS of the actual tool mention.
     for tool in NAMED_TOOL_RE.finditer(text):
         window, left, _ = _local_window(text, tool)
-        code = CODE_RE.search(window)
+        # A product name such as "Claude Code" is not itself evidence that
+        # the author used the product to write this mod's code.
+        code = CODE_RE.search(_code_context(window))
         use = USE_RE.search(window)
 
         if code and use:
@@ -119,7 +129,7 @@ def _find_code_claim(text: str) -> tuple[str, str, str] | None:
     # use/action verb in the same tight window.
     for ai in GENERIC_AI_RE.finditer(text):
         window, left, _ = _local_window(text, ai)
-        code = CODE_RE.search(window)
+        code = CODE_RE.search(_code_context(window))
         use = USE_RE.search(window)
 
         if code and use:
@@ -185,6 +195,11 @@ DOMAIN_LABELS = {
     'ai_audio_claim': 'ai_audio_claim',
 }
 POLICY_RE = re.compile(r"\b(?:don['’]?t|do not|never|no|without|against|forbid|banned)\b.{0,60}\b(?:ai|chatgpt|claude|copilot|generative)\b", re.I)
+DENIAL_RE = re.compile(
+    r"\b(?:does not|do not|did not|is not|was not|without|no)\b"
+    r".{0,60}\b(?:ai|chatgpt|claude|copilot|generative)\b",
+    re.I,
+)
 GAMEPLAY_RE = re.compile(r'\b(?:pathfinding|npc|npcs|zombie|zombies|survivor|faction|enemy|enemies|behavior|behaviour)\b', re.I)
 TOOL_NAMES = [(re.compile(pattern, re.I), name) for pattern, name in [
     (r'\bchat\s*gpt\b', 'ChatGPT'), (r'\bgpt(?:[-\s]?(?:3(?:\.5)?|4o?|5))?\b', 'GPT'),
@@ -205,8 +220,10 @@ def classify_ai_mention(title: str | None, description: str | None):
     domains = []
     policy = gameplay = False
     for sentence in re.split(r'(?<=[.!?])\s+|[\r\n]+', text):
-        if POLICY_RE.search(sentence):
+        if POLICY_RE.search(sentence) or DENIAL_RE.search(sentence):
             policy = True
+            continue
+        if OTHER_VERSION_RE.search(sentence):
             continue
         if GAMEPLAY_RE.search(sentence) and GENERIC_AI_RE.search(sentence) and not NAMED_TOOL_RE.search(sentence):
             gameplay = True
