@@ -20,16 +20,10 @@ def main():
     finally:
         conn.close()
 
-    print("\nAI / GENERATIVE TOOL MENTIONS — CLASSIFIER v0.2.2")
-    print(f"candidate items scanned:         {candidates:,}")
-    print(f"explicit genAI development:      {summary['explicit_genai_dev']:,}")
-    print(f"explicit generic AI development: {summary['explicit_ai_dev_unspecified']:,}")
-    print(f"explicit vibe coding:            {summary['explicit_vibe_coding']:,}")
-    print(f"AI art / asset mentions:         {summary['ai_art_or_asset_mention']:,}")
-    print(f"AI policy / rejection:           {summary['ai_policy_or_rejection']:,}")
-    print(f"gameplay AI:                     {summary['gameplay_ai']:,}")
-    print(f"unclear tool mentions:           {summary['tool_mention_unclear']:,}")
-    print(f"generic AI unclear:              {summary['generic_ai_unclear']:,}")
+    print("\nAI / GENERATIVE TOOL MENTIONS")
+    print(f"candidate items scanned: {candidates:,}")
+    for label, count in sorted(summary.items()):
+        print(f"{label}: {count:,}")
 
     for match in matches:
         tools = ", ".join(match["tools"]) if match["tools"] else "-"

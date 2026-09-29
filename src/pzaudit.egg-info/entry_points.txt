@@ -1,3 +1,0 @@
-[console_scripts]
-pzaudit = pzaudit.cli:main
-pzaudit-review = pzaudit.review_cli:main

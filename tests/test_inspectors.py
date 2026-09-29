@@ -16,11 +16,11 @@ def test_overview_timeline_tags(tmp_path: Path):
     assert timeline(c)==[("2021",1),("2022",1)]
     assert top_tags(c,1)==[("Mod",2)]
 
-def test_explicit_disclosure():
+def test_explicit_genai_dev():
     r=classify_ai_mention("Example","I made this mod using Claude to help write the Lua scripts.")
-    assert r["classification"]=="explicit_disclosure"
+    assert r["classification"]=="explicit_genai_dev"
     assert "Claude" in r["tools"]
 
 def test_generic_ai_is_ambiguous():
     r=classify_ai_mention("Smarter Zombies","Improves AI pathfinding and survivor behavior.")
-    assert r["classification"]=="ambiguous_ai"
+    assert r["classification"]=="gameplay_ai"

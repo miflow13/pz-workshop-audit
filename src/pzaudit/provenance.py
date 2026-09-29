@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import sqlite3
 from dataclasses import dataclass
 
@@ -37,70 +36,6 @@ CREATE INDEX IF NOT EXISTS idx_provenance_evidence_type
 ON provenance_candidates(evidence_type);
 """
 
-TRANSLATION_RE = re.compile(
-    r"\b(ai[- ]?(?:translated|translation|translations)|"
-    r"(?:translated|translation|translations).{0,35}\b(?:ai|chatgpt|claude|gpt|llm)\b)\b",
-    re.I | re.S,
-)
-
-AUDIO_RE = re.compile(
-    r"\b(ai[- ]?(?:generated[- ]?)?(?:music|song|songs|voice|voices|audio)|"
-    r"(?:music|song|songs|voice|voices|audio).{0,35}"
-    r"\b(?:ai|chatgpt|claude|gpt|llm)\b)\b",
-    re.I | re.S,
-)
-
-ASSET_RE = re.compile(
-    r"\bai[- ]?(?:generated[- ]?)?(?:art|artwork|image|images|texture|textures|icon|icons|"
-    r"thumbnail|thumbnails|illustration|illustrations|face|faces|cover image|cover art)\b"
-    r"|\b(?:art|artwork|image|images|texture|textures|icon|icons|thumbnail|thumbnails|"
-    r"illustration|illustrations|face|faces|cover image|cover art)\b.{0,35}"
-    r"\b(?:ai|chatgpt|claude|gpt|llm)\b",
-    re.I | re.S,
-)
-
-NAMED_TOOL_RE = re.compile(
-    r"\b(chat\s*gpt|chatgpt|gpt(?:[-\s]?(?:3(?:\.5)?|4(?:o)?|5))?|claude|"
-    r"(?:github\s+)?copilot|gemini|llms?|large language models?|"
-    r"cursor\s+(?:ai|ide|editor))\b",
-    re.I,
-)
-
-GENERIC_AI_RE = re.compile(
-    r"\b(?:generative\s+ai|genai|artificial intelligence|ai)\b",
-    re.I,
-)
-
-CODE_RE = re.compile(
-    r"\b(code|coded|coding|script|scripts|lua|program|programming|implementation|"
-    r"implemented|function|functions|debug|debugging|refactor|refactoring|source code)\b",
-    re.I,
-)
-
-USE_RE = re.compile(
-    r"\b(using|used|with|via|assisted|helped|generated|wrote|written|coded|built|"
-    r"developed|prompted|pair[- ]programming|created|made|debugged|refactored)\b",
-    re.I,
-)
-
-GENERAL_DEVELOPMENT_RE = re.compile(
-    r"\b(?:ai|artificial intelligence|generative ai|genai)\b"
-    r".{0,70}\b(?:used|services?|assisted|helped)\b"
-    r".{0,70}\b(?:during|for|in)\b"
-    r".{0,30}\b(?:development|developing)\b"
-    r"|\b(?:used|using)\b.{0,40}\b(?:ai|artificial intelligence|generative ai|genai)\b"
-    r".{0,70}\b(?:during|for|in)\b.{0,30}\b(?:development|developing)\b",
-    re.I | re.S,
-)
-
-VIBE_RE = re.compile(r"\bvibe[-\s]?cod(?:e|ed|ing)\b", re.I)
-
-# We intentionally use a fairly tight local window. The previous extractor
-# matched "AI faction mod" near the top of a huge description with "code"
-# hundreds/thousands of characters later.
-LOCAL_RADIUS = 180
-
-
 @dataclass(frozen=True)
 class Candidate:
     workshop_id: str
@@ -116,117 +51,6 @@ class Candidate:
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     conn.commit()
-
-
-def _clean(value: str | None) -> str:
-    return " ".join((value or "").split())
-
-
-def _snippet(text: str, start: int, end: int, radius: int = 150) -> str:
-    left = max(0, start - radius)
-    right = min(len(text), end + radius)
-    return ("…" if left else "") + text[left:right] + ("…" if right < len(text) else "")
-
-
-def _local_window(text: str, match: re.Match[str], radius: int = LOCAL_RADIUS) -> tuple[str, int, int]:
-    left = max(0, match.start() - radius)
-    right = min(len(text), match.end() + radius)
-    return text[left:right], left, right
-
-
-def _find_code_claim(text: str) -> tuple[str, str, str] | None:
-    """
-    Return (evidence_type, classification, snippet) only when AI/tool use and
-    coding language occur in the same local context.
-    """
-    vibe = VIBE_RE.search(text)
-    if vibe:
-        return (
-            "code",
-            "explicit_vibe_coding_claim",
-            _snippet(text, vibe.start(), vibe.end()),
-        )
-
-    # Named tools are the strongest signal. Require code context AND a use verb
-    # within +/- LOCAL_RADIUS of the actual tool mention.
-    for tool in NAMED_TOOL_RE.finditer(text):
-        window, left, _ = _local_window(text, tool)
-        code = CODE_RE.search(window)
-        use = USE_RE.search(window)
-
-        if code and use:
-            start = left + min(tool.start() - left, code.start(), use.start())
-            end = left + max(tool.end() - left, code.end(), use.end())
-            return (
-                "code",
-                "named_tool_code_claim",
-                _snippet(text, start, end),
-            )
-
-    # Generic "AI" is much noisier. Require both code language and an explicit
-    # use/action verb in the same tight window.
-    for ai in GENERIC_AI_RE.finditer(text):
-        window, left, _ = _local_window(text, ai)
-        code = CODE_RE.search(window)
-        use = USE_RE.search(window)
-
-        if code and use:
-            start = left + min(ai.start() - left, code.start(), use.start())
-            end = left + max(ai.end() - left, code.end(), use.end())
-            return (
-                "code",
-                "generic_ai_code_claim",
-                _snippet(text, start, end),
-            )
-
-    # "AI services used during development" is real provenance evidence, but it
-    # does not establish code generation or coding assistance.
-    general = GENERAL_DEVELOPMENT_RE.search(text)
-    if general:
-        return (
-            "development_general",
-            "ai_development_scope_unspecified",
-            _snippet(text, general.start(), general.end()),
-        )
-
-    return None
-
-
-def _domain_evidence(text: str) -> tuple[str, str, str] | None:
-    # Specific non-code provenance wins before generic development analysis.
-    match = TRANSLATION_RE.search(text)
-    if match:
-        return (
-            "translation",
-            "ai_translation_claim",
-            _snippet(text, match.start(), match.end()),
-        )
-
-    match = ASSET_RE.search(text)
-    if match:
-        return (
-            "assets",
-            "ai_asset_claim",
-            _snippet(text, match.start(), match.end()),
-        )
-
-    match = AUDIO_RE.search(text)
-    if match:
-        return (
-            "audio",
-            "ai_audio_claim",
-            _snippet(text, match.start(), match.end()),
-        )
-
-    return _find_code_claim(text)
-
-
-def _tools_from_classifier(title: str | None, description: str | None) -> str:
-    result = classify_ai_mention(title, description)
-    if not result:
-        return ""
-    tools = result.get("tools") or []
-    return ",".join(sorted(str(tool) for tool in tools))
 
 
 def _insert_or_refresh(
@@ -263,6 +87,7 @@ def _insert_or_refresh(
             created_at = excluded.created_at,
             updated_at = excluded.updated_at,
             last_seen_at = CURRENT_TIMESTAMP
+        WHERE provenance_candidates.review_status = 'pending'
         """,
         (
             candidate.workshop_id,
@@ -278,8 +103,7 @@ def _insert_or_refresh(
     return not existed
 
 
-def extract_candidates(conn: sqlite3.Connection) -> tuple[int, int]:
-    ensure_schema(conn)
+def _extract_candidates(conn: sqlite3.Connection) -> tuple[int, int]:
     inserted = 0
     refreshed = 0
 
@@ -287,26 +111,25 @@ def extract_candidates(conn: sqlite3.Connection) -> tuple[int, int]:
         """
         SELECT workshop_id, title, description, time_created, time_updated
         FROM mods
-        WHERE description IS NOT NULL
-          AND trim(description) != ''
+        WHERE trim(COALESCE(title, '') || COALESCE(description, '')) != ''
         """
     )
 
     for row in rows:
         title = row["title"]
         description = row["description"]
-        text = _clean(f"{title or ''} {description or ''}")
-
-        domain = _domain_evidence(text)
-        if not domain:
+        result = classify_ai_mention(title, description)
+        if not result or not result.get("evidence_type"):
             continue
 
-        evidence_type, classification, snippet = domain
+        evidence_type = result["evidence_type"]
+        classification = result["provenance_classification"]
+        snippet = result["snippet"]
         candidate = Candidate(
             workshop_id=str(row["workshop_id"]),
             evidence_type=evidence_type,
             classification=classification,
-            tools=_tools_from_classifier(title, description),
+            tools=",".join(result["tools"]),
             evidence_snippet=snippet,
             source_title=title,
             created_at=row["time_created"],
@@ -318,37 +141,46 @@ def extract_candidates(conn: sqlite3.Connection) -> tuple[int, int]:
         else:
             refreshed += 1
 
-    conn.commit()
     return inserted, refreshed
 
 
-def refresh_pending_development_candidates(
-    conn: sqlite3.Connection,
-) -> tuple[int, int, int]:
-    """
-    Remove only *pending* code/development-general candidates produced by older
-    extractor rules, then regenerate them using v0.3.2 proximity rules.
-
-    Human-reviewed rows (confirmed/rejected/unclear) are preserved.
-
-    Returns:
-      removed_pending, new_candidates, refreshed_existing
-    """
+def extract_candidates(conn: sqlite3.Connection) -> tuple[int, int]:
     ensure_schema(conn)
+    with conn:
+        return _extract_candidates(conn)
 
-    before = conn.total_changes
-    conn.execute(
-        """
-        DELETE FROM provenance_candidates
-        WHERE review_status = 'pending'
-          AND evidence_type IN ('code', 'development_general')
-        """
-    )
-    removed = conn.total_changes - before
-    conn.commit()
 
-    inserted, refreshed = extract_candidates(conn)
+def _refresh_pending(conn: sqlite3.Connection, *, all_types: bool) -> tuple[int, int, int]:
+    ensure_schema(conn)
+    with conn:
+        # Acquire the write lock before changing derived review aids or candidates.
+        conn.execute("BEGIN IMMEDIATE")
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "provenance_group_members" in tables:
+            conn.execute("DELETE FROM provenance_group_members")
+        if "provenance_groups" in tables:
+            conn.execute("DELETE FROM provenance_groups")
+        condition = "" if all_types else " AND evidence_type IN ('code', 'development_general')"
+        removed = conn.execute(
+            "DELETE FROM provenance_candidates WHERE review_status = 'pending'" + condition
+        ).rowcount
+        inserted, refreshed = _extract_candidates(conn)
     return removed, inserted, refreshed
+
+
+def refresh_all_pending_candidates(conn: sqlite3.Connection) -> tuple[int, int, int]:
+    """Atomically rebuild all pending evidence; reviewed rows remain unchanged.
+
+    Returns (removed pending, inserted, existing matches). Existing matches
+    include reviewed evidence, which is preserved rather than updated.
+    Group caches are invalidated; rebuild them before further grouped review.
+    """
+    return _refresh_pending(conn, all_types=True)
+
+
+def refresh_pending_development_candidates(conn: sqlite3.Connection) -> tuple[int, int, int]:
+    """Compatibility workflow: replace pending code/development evidence only."""
+    return _refresh_pending(conn, all_types=False)
 
 
 def next_pending(conn: sqlite3.Connection, evidence_type: str | None = None):

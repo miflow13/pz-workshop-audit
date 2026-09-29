@@ -164,26 +164,9 @@ def cmd_inspect(db: Path, args: argparse.Namespace) -> None:
             print("\nAI / GENERATIVE TOOL MENTIONS")
             print(f"candidate items scanned: {candidates:,}")
             print(f"matching items:          {sum(summary.values()):,}")
-            print(
-                f"explicit disclosures:   "
-                f"{summary['explicit_disclosure']:,}"
-            )
-            print(
-                f"possible dev AI:         "
-                f"{summary['possible_dev_ai']:,}"
-            )
-            print(
-                f"ambiguous tool mention:  "
-                f"{summary['ambiguous_tool_mention']:,}"
-            )
-            print(
-                f"ambiguous generic AI:    "
-                f"{summary['ambiguous_ai']:,}"
-            )
-            print(
-                "\nOnly explicit disclosures are direct provenance evidence; "
-                "other groups require review."
-            )
+            for label, count in sorted(summary.items()):
+                print(f"{label}: {count:,}")
+            print("\nScreening results require human provenance review.")
 
             for match in matches:
                 tools = (

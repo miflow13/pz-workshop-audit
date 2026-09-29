@@ -20,6 +20,7 @@ from .provenance import (
     extract_candidates,
     next_pending,
     refresh_pending_development_candidates,
+    refresh_all_pending_candidates,
     review_candidate,
     summary,
 )
@@ -236,6 +237,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("extract")
     sub.add_parser("refresh-candidates")
+    sub.add_parser("refresh-all-pending", help="Rebuild all pending evidence, preserving reviewed rows")
 
     next_cmd = sub.add_parser("next")
     next_cmd.add_argument(
@@ -312,6 +314,12 @@ def main() -> None:
 
         if args.command == "extract":
             cmd_extract(conn)
+        elif args.command == "refresh-all-pending":
+            removed, inserted, existing = refresh_all_pending_candidates(conn)
+            print(f"Pending rows removed: {removed:,}")
+            print(f"New candidates inserted: {inserted:,}")
+            print(f"Existing reviewed matches preserved: {existing:,}")
+            print("Reviewed rows were preserved. Rebuild groups before grouped review.")
         elif args.command == "refresh-candidates":
             removed, inserted, refreshed = refresh_pending_development_candidates(conn)
             print("PROVENANCE CANDIDATE REFRESH v0.3.2")

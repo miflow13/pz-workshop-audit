@@ -1,8 +1,8 @@
 import sqlite3
 
 import pzaudit.provenance as provenance
+from pzaudit.inspectors import _domain_evidence
 from pzaudit.provenance import (
-    _domain_evidence,
     refresh_pending_development_candidates,
 )
 
@@ -58,7 +58,7 @@ def make_conn():
     return conn
 
 
-def test_refresh_preserves_reviewed_rows(monkeypatch):
+def test_refresh_preserves_reviewed_rows():
     conn = make_conn()
 
     conn.execute(
@@ -81,11 +81,6 @@ def test_refresh_preserves_reviewed_rows(monkeypatch):
     )
     conn.commit()
 
-    monkeypatch.setattr(
-        provenance,
-        "_tools_from_classifier",
-        lambda title, description: "Claude",
-    )
 
     removed, inserted, refreshed = refresh_pending_development_candidates(conn)
 
